@@ -62,7 +62,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-var todoRE = regexp.MustCompile(`(?P<leading>\W)?(?P<todo>TODO|ToDo|todo|FIXME|FixMe|fixme|XXX|xxx)(?P<trailing>\()?`)
+var todoRE = regexp.MustCompile(`(\W)?((?i:TODO|FIXME))(\()?`)
 
 func matchTodoComment(s string) *matchResult {
 	r := todoRE.FindStringSubmatchIndex(s)
@@ -87,8 +87,7 @@ func (m *matchResult) Group(n int) string {
 }
 
 func (m *matchResult) GroupPos(n int) int {
-	pos := m.indices[2*n]
-	return utf8.RuneCountInString(m.s[:pos])
+	return m.indices[2*n]
 }
 
 func isEmptyOrWhitespaceLeading(s string) bool {
