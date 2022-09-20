@@ -14,7 +14,7 @@ Requires TODO comments to be in the form of "TODO(author) ...
 ## Install
 
 ```shel
-go install github.com/timonwong/loggercheck/cmd/loggercheck
+go install github.com/timonwong/todolint/cmd/todolint
 ```
 
 ## Usage
