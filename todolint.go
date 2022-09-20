@@ -33,7 +33,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-func checkComment(pass *analysis.Pass, comment *ast.Comment) {
+type AnalysisPass interface {
+	Reportf(pos token.Pos, format string, args ...interface{})
+}
+
+func checkComment(pass AnalysisPass, comment *ast.Comment) {
 	const (
 		groupLeading  = 1
 		groupTodoText = 2
@@ -42,43 +46,64 @@ func checkComment(pass *analysis.Pass, comment *ast.Comment) {
 		commentLeading = 2
 	)
 
-	commentText := comment.Text
-	skip := commentLeading // skip "//" or "/*"
+	c := comment.Text
 
-	// skip spaces
-	for ; skip < len(commentText); skip++ {
-		if !isWhitespace(commentText[skip]) {
-			break
-		}
-	}
-
-	r := matchTodoComment(commentText[skip:])
-	if r == nil {
-		return
-	}
-
-	leading := r.Group(groupLeading)
-	todo := r.Group(groupTodoText)
-	expectTodo := strings.ToUpper(todo)
-	trailing := r.Group(groupTrailing)
-
-	isLeadingOk := isEmptyOrWhitespaceLeading(leading)
-	if isLeadingOk && expectTodo == todo && trailing == "(" {
-		return
-	}
-
-	pos := comment.Pos() + token.Pos(skip)
-	if isLeadingOk {
-		pos += token.Pos(r.GroupPos(groupTodoText))
+	var clines []string
+	if c[1] == '*' {
+		/*-style comment, remove trailing comment markers */
+		c = c[commentLeading : len(c)-commentLeading]
+		clines = strings.Split(c, "\n")
 	} else {
-		pos += token.Pos(r.GroupPos(groupLeading))
+		//-style comment, no line breaks
+		clines = []string{c[commentLeading:]}
 	}
-	pass.Reportf(pos, "TODO comment should be in the form %s(author)", expectTodo)
+
+	start := commentLeading // skip leading "//" or "/*"
+	var prevCommentLen int
+	for _, cl := range clines {
+		start += prevCommentLen
+		prevCommentLen = len(cl) + 1 // 1 for \n
+
+		// skip whitespaces
+		var skip int
+		for ; skip < len(cl); skip++ {
+			if !isWhitespace(cl[skip]) {
+				break
+			}
+		}
+
+		r := matchTodoComment(cl[skip:])
+		if r == nil {
+			continue
+		}
+
+		leading := r.Group(groupLeading)
+		todo := r.Group(groupTodoText)
+		expectTodo := strings.ToUpper(todo)
+		trailing := r.Group(groupTrailing)
+
+		isLeadingOk := isEmptyOrWhitespaceLeading(leading)
+		if isLeadingOk && expectTodo == todo && trailing == "(" {
+			continue
+		}
+
+		pos := comment.Pos() + token.Pos(start+skip)
+		if isLeadingOk {
+			pos += token.Pos(r.GroupPos(groupTodoText))
+		} else {
+			pos += token.Pos(r.GroupPos(groupLeading))
+		}
+		pass.Reportf(pos, "TODO comment should be in the form %s(author)", expectTodo)
+	}
 }
 
 var todoRE = regexp.MustCompile(`(\W)?((?i:TODO|FIXME))(\()?`)
 
 func matchTodoComment(s string) *matchResult {
+	if s == "" {
+		return nil
+	}
+
 	r := todoRE.FindStringSubmatchIndex(s)
 	if len(r) == 0 {
 		return nil
