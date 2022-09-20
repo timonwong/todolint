@@ -1,7 +1,6 @@
 package todolint
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"regexp"
@@ -28,7 +27,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				checkComment(pass, comment)
 			}
 		}
-		fmt.Printf("%v\n", f.Comments)
 	}
 	return nil, nil
 }
