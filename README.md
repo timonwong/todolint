@@ -2,6 +2,8 @@
 
 ## Description
 
+Requires TODO comments to be in the form of "TODO(author) ...
+
 ## Badges
 
 ![Build Status](https://github.com/timonwong/todolint/workflows/CI/badge.svg)
