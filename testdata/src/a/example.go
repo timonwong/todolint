@@ -28,9 +28,7 @@ func Example() {
 	 */
 
 	/*
-	 * Block multiline comments
-	 * TODO(author) This is OK
-	 * TODO This will be ignored
-	 * ...
+	 * TODO(timonwong) This is OK
+	 *
 	 */
 }
