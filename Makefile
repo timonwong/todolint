@@ -15,4 +15,4 @@ build-plugin:
 	CGO_ENABLED=1 go build -o bin/todolint.so -buildmode=plugin ./plugin
 
 .PHONY: build-all
-build-all: build
+build-all: build build-plugin
