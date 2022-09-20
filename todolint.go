@@ -1,41 +1,86 @@
 package todolint
 
 import (
+	"errors"
+	"flag"
+	"fmt"
 	"go/ast"
 	"go/token"
 	"regexp"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
+
+	"github.com/timonwong/todolint/internal/list"
 )
 
 const Doc = `Requires TODO comments to be in the form of "TODO(author) ...`
 
 func NewAnalyzer() *analysis.Analyzer {
+	t := newTodoLint()
 	a := &analysis.Analyzer{
 		Name: "todolint",
 		Doc:  Doc,
-		Run:  run,
+		Run:  t.run,
 	}
+	t.bindFlags(&a.Flags)
 	return a
 }
 
-func run(pass *analysis.Pass) (interface{}, error) {
+type todolint struct {
+	keywords list.String
+
+	re *regexp.Regexp
+}
+
+func newTodoLint() *todolint {
+	return &todolint{
+		keywords: list.NewString("TODO", "FIXME"),
+	}
+}
+
+func (t *todolint) bindFlags(fs *flag.FlagSet) {
+	fs.Var(&t.keywords, "keywords", "comma-separated list of case-insensitive keywords to check for")
+}
+
+func (t *todolint) processConfig() error {
+	if len(t.keywords) == 0 {
+		return errors.New("at least one keyword must be specified")
+	}
+
+	keywords := make([]string, 0, len(t.keywords))
+	for _, keyword := range t.keywords {
+		if !isValidKeyword(keyword) {
+			return fmt.Errorf("invalid keyword %q", keyword)
+		}
+		keywords = append(keywords, keyword)
+	}
+
+	expr := fmt.Sprintf(`(\W)?((?i:%s)\b)(\()?`, strings.Join(keywords, "|"))
+	t.re = regexp.MustCompile(expr)
+	return nil
+}
+
+func (t *todolint) run(pass *analysis.Pass) (interface{}, error) {
+	err := t.processConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	for _, f := range pass.Files {
 		for _, commentGroup := range f.Comments {
 			for _, comment := range commentGroup.List {
-				checkComment(pass, comment)
+				issues := t.checkComment(comment)
+				for _, issue := range issues {
+					pass.Reportf(issue.Pos, issue.Message)
+				}
 			}
 		}
 	}
 	return nil, nil
 }
 
-type AnalysisPass interface {
-	Reportf(pos token.Pos, format string, args ...interface{})
-}
-
-func checkComment(pass AnalysisPass, comment *ast.Comment) {
+func (t *todolint) checkComment(comment *ast.Comment) (issues []analysis.Diagnostic) {
 	const (
 		groupLeading  = 1
 		groupTodoText = 2
@@ -70,7 +115,7 @@ func checkComment(pass AnalysisPass, comment *ast.Comment) {
 			}
 		}
 
-		r := matchTodoComment(cl[skip:])
+		r := t.matchTodoComment(cl[skip:])
 		if r == nil {
 			continue
 		}
@@ -91,18 +136,23 @@ func checkComment(pass AnalysisPass, comment *ast.Comment) {
 		} else {
 			pos += token.Pos(r.GroupPos(groupLeading))
 		}
-		pass.Reportf(pos, "TODO comment should be in the form %s(author)", expectTodo)
+
+		issues = append(issues, analysis.Diagnostic{
+			Pos:      pos,
+			Category: "comment",
+			Message:  fmt.Sprintf("TODO comment should be in the form %s(author)", expectTodo),
+		})
 	}
+
+	return issues
 }
 
-var todoRE = regexp.MustCompile(`(\W)?((?i:TODO|FIXME))(\()?`)
-
-func matchTodoComment(s string) *matchResult {
+func (t *todolint) matchTodoComment(s string) *matchResult {
 	if s == "" {
 		return nil
 	}
 
-	r := todoRE.FindStringSubmatchIndex(s)
+	r := t.re.FindStringSubmatchIndex(s)
 	if len(r) == 0 {
 		return nil
 	}
@@ -125,6 +175,23 @@ func (m *matchResult) Group(n int) string {
 
 func (m *matchResult) GroupPos(n int) int {
 	return m.indices[2*n]
+}
+
+// keyword can only contain letters and numbers
+func isValidKeyword(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if !isAlphaNum(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlphaNum(c int32) bool {
+	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
 }
 
 func isWhitespace(ch byte) bool { return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' }

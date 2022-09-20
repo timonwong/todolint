@@ -2,24 +2,69 @@ package todolint
 
 import (
 	"go/ast"
-	"go/token"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
+type dummyTestingErrorf struct {
+	*testing.T
+}
+
+func (t dummyTestingErrorf) Errorf(format string, args ...interface{}) {}
+
 func TestLinter(t *testing.T) {
+	testCases := []struct {
+		name      string
+		flags     []string
+		wantError string
+	}{
+		{
+			name: "all",
+		},
+		{
+			name:      "error-empty-keywords",
+			flags:     []string{"-keywords="},
+			wantError: "at least one keyword must be specified",
+		},
+		{
+			name:      "error-invalid-keyword-1",
+			flags:     []string{"-keywords=,abc"},
+			wantError: "invalid keyword \"\"",
+		},
+		{
+			name:      "error-invalid-keyword-2",
+			flags:     []string{"-keywords=abc,⏰"},
+			wantError: "invalid keyword \"⏰\"",
+		},
+	}
+
 	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, NewAnalyzer(), "a")
-}
+	for _, tc := range testCases {
+		tc := tc
 
-type AnalysisPassStub struct {
-	positions []token.Pos
-}
+		t.Run(tc.name, func(t *testing.T) {
+			tl := NewAnalyzer()
+			err := tl.Flags.Parse(tc.flags)
+			require.NoError(t, err)
 
-func (a *AnalysisPassStub) Reportf(pos token.Pos, format string, args ...interface{}) {
-	a.positions = append(a.positions, pos)
+			var result []*analysistest.Result
+			if tc.wantError != "" {
+				result = analysistest.Run(&dummyTestingErrorf{t}, testdata, tl, "a")
+			} else {
+				result = analysistest.Run(t, testdata, tl, "a")
+			}
+			require.Len(t, result, 1)
+
+			if tc.wantError != "" {
+				assert.Error(t, result[0].Err)
+				assert.ErrorContains(t, result[0].Err, tc.wantError)
+			}
+		})
+	}
 }
 
 func getLineAtPos(s string, n int) string {
@@ -31,24 +76,26 @@ func getLineAtPos(s string, n int) string {
 	return s[n:]
 }
 
-func getLinesFromPositions(s string, positions []token.Pos) []string {
+func getLinesFromIssues(s string, issues []analysis.Diagnostic) []string {
 	var lines []string
-	for _, pos := range positions {
-		lines = append(lines, getLineAtPos(s, int(pos)))
+	for _, issue := range issues {
+		lines = append(lines, getLineAtPos(s, int(issue.Pos)))
 	}
 	return lines
 }
 
-func TestCheckComment(t *testing.T) {
-	pass := &AnalysisPassStub{}
-
+func TestTodoLint_CheckComment(t *testing.T) {
 	testCases := []struct {
 		name    string
 		comment string
 		want    []string
 	}{
 		{
-			name: "block-multiple-todos",
+			name:    "simple comment",
+			comment: "// This is a simple comment without todos",
+		},
+		{
+			name: "block comments mixed todos",
 			comment: `/*
 
     * TODO(author): This is OK
@@ -69,11 +116,15 @@ func TestCheckComment(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			checkComment(pass, &ast.Comment{Text: tc.comment})
-			result := getLinesFromPositions(tc.comment, pass.positions)
-			if !cmp.Equal(tc.want, result) {
-				t.Errorf("got: %v, want: %v, diff: %s", result, tc.want, cmp.Diff(tc.want, result))
-			}
+			t.Parallel()
+
+			tl := newTodoLint()
+			err := tl.processConfig()
+			require.NoError(t, err)
+
+			issues := tl.checkComment(&ast.Comment{Text: tc.comment})
+			result := getLinesFromIssues(tc.comment, issues)
+			assert.Equal(t, tc.want, result)
 		})
 	}
 }
