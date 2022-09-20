@@ -23,4 +23,7 @@ func Example() {
 	fmt.Println("Hello")
 
 	fmt.Println("你好，世界") // fixme: more languages // want `TODO comment should be in the form FIXME\(author\)`
+
+	/*TODO: old C-style comment is also supported // want `TODO comment should be in the form TODO\(author\)`
+	 */
 }

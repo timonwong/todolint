@@ -2,6 +2,7 @@ package todolint
 
 import (
 	"fmt"
+	"go/ast"
 	"go/token"
 	"regexp"
 	"strings"
@@ -23,43 +24,47 @@ func NewAnalyzer() *analysis.Analyzer {
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
+	for _, f := range pass.Files {
+		for _, commentGroup := range f.Comments {
+			for _, comment := range commentGroup.List {
+				checkComment(pass, comment)
+			}
+		}
+		fmt.Printf("%v\n", f.Comments)
+	}
+	return nil, nil
+}
+
+func checkComment(pass *analysis.Pass, comment *ast.Comment) {
 	const (
 		groupLeading  = 1
 		groupTodoText = 2
 		groupTrailing = 3
 	)
 
-	for _, f := range pass.Files {
-		for _, commentGroup := range f.Comments {
-			for _, comment := range commentGroup.List {
-				commentText := comment.Text
-				r := matchTodoComment(commentText)
-				if r == nil {
-					continue
-				}
-
-				leading := r.Group(groupLeading)
-				todo := r.Group(groupTodoText)
-				expectTodo := strings.ToUpper(todo)
-				trailing := r.Group(groupTrailing)
-
-				isLeadingOk := isEmptyOrWhitespaceLeading(leading)
-				if isLeadingOk && expectTodo == todo && trailing == "(" {
-					continue
-				}
-
-				pos := comment.Pos()
-				if isLeadingOk {
-					pos += token.Pos(r.GroupPos(groupTodoText))
-				} else {
-					pos += token.Pos(r.GroupPos(groupLeading))
-				}
-				pass.Reportf(pos, "TODO comment should be in the form %s(author)", expectTodo)
-			}
-		}
-		fmt.Printf("%v\n", f.Comments)
+	commentText := comment.Text
+	r := matchTodoComment(commentText)
+	if r == nil {
+		return
 	}
-	return nil, nil
+
+	leading := r.Group(groupLeading)
+	todo := r.Group(groupTodoText)
+	expectTodo := strings.ToUpper(todo)
+	trailing := r.Group(groupTrailing)
+
+	isLeadingOk := isEmptyOrWhitespaceLeading(leading)
+	if isLeadingOk && expectTodo == todo && trailing == "(" {
+		return
+	}
+
+	pos := comment.Pos()
+	if isLeadingOk {
+		pos += token.Pos(r.GroupPos(groupTodoText))
+	} else {
+		pos += token.Pos(r.GroupPos(groupLeading))
+	}
+	pass.Reportf(pos, "TODO comment should be in the form %s(author)", expectTodo)
 }
 
 var todoRE = regexp.MustCompile(`(\W)?((?i:TODO|FIXME))(\()?`)
