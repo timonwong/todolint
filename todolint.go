@@ -6,8 +6,6 @@ import (
 	"go/token"
 	"regexp"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -40,10 +38,21 @@ func checkComment(pass *analysis.Pass, comment *ast.Comment) {
 		groupLeading  = 1
 		groupTodoText = 2
 		groupTrailing = 3
+
+		commentLeading = 2
 	)
 
 	commentText := comment.Text
-	r := matchTodoComment(commentText)
+	skip := commentLeading // skip "//" or "/*"
+
+	// skip spaces
+	for ; skip < len(commentText); skip++ {
+		if !isWhitespace(commentText[skip]) {
+			break
+		}
+	}
+
+	r := matchTodoComment(commentText[skip:])
 	if r == nil {
 		return
 	}
@@ -58,7 +67,7 @@ func checkComment(pass *analysis.Pass, comment *ast.Comment) {
 		return
 	}
 
-	pos := comment.Pos()
+	pos := comment.Pos() + token.Pos(skip)
 	if isLeadingOk {
 		pos += token.Pos(r.GroupPos(groupTodoText))
 	} else {
@@ -95,10 +104,11 @@ func (m *matchResult) GroupPos(n int) int {
 	return m.indices[2*n]
 }
 
+func isWhitespace(ch byte) bool { return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' }
+
 func isEmptyOrWhitespaceLeading(s string) bool {
 	if s == "" {
 		return true
 	}
-	r, _ := utf8.DecodeRuneInString(s)
-	return unicode.IsSpace(r)
+	return isWhitespace(s[0])
 }
