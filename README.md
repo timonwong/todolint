@@ -23,6 +23,9 @@ go install github.com/timonwong/loggercheck/cmd/loggercheck
 todolint: Requires TODO comments to be in the form of "TODO(author) ...
 
 Usage: todolint [-flag] [package]
+
+  -keywords value
+        comma-separated list of case-insensitive keywords to check for (default TODO,FIXME)
 ```
 
 ## Example
